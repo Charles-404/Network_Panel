@@ -1,0 +1,1 @@
+module.exports = { plugins: [require('@vitejs/plugin-react')()], resolve: { alias: { '@': require('path').resolve(__dirname, './src/frontend') } }, server: { port: 3000, host: true, proxy: { '/api': { target: 'http://localhost:3001', changeOrigin: true }, '/ws': { target: 'ws://localhost:3002', ws: true } } } }; 

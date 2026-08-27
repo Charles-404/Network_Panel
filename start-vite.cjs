@@ -1,0 +1,1 @@
+var cp = require('child_process');var origSpawn = cp.spawn;cp.spawn = function(cmd, args, opts) {return origSpawn.call(this, cmd, args, opts);};cp.execSync('npx vite --host', {stdio: 'inherit', cwd: __dirname});
