@@ -65,6 +65,13 @@ async function getSnmpConfig(): Promise<SnmpConfig> {
     port: parseInt(process.env.SNMP_PORT || '161'),
     timeout: parseInt(process.env.SNMP_TIMEOUT || '5000'),
     retries: parseInt(process.env.SNMP_RETRIES || '1'),
+    version: process.env.SNMP_VERSION || '2c',
+    username: process.env.SNMP_USERNAME,
+    securityLevel: process.env.SNMP_SECURITY_LEVEL || 'noAuthNoPriv',
+    authProtocol: process.env.SNMP_AUTH_PROTOCOL,
+    authPassword: process.env.SNMP_AUTH_PASSWORD,
+    privProtocol: process.env.SNMP_PRIV_PROTOCOL,
+    privPassword: process.env.SNMP_PRIV_PASSWORD,
   };
 }
 
@@ -145,9 +152,20 @@ class SnmpSession {
     // Handle SNMPv3
     if (config.version === '3' && config.username) {
       options.version = snmp.SnmpVersion.v3;
+      
+      // Map security level string to enum
+      let securityLevel = snmp.SecurityLevel.noAuthNoPriv;
+      if (config.securityLevel === 'authPriv' || config.securityLevel === '3') {
+        securityLevel = snmp.SecurityLevel.authPriv;
+      } else if (config.securityLevel === 'authNoPriv' || config.securityLevel === '2') {
+        securityLevel = snmp.SecurityLevel.authNoPriv;
+      } else if (config.securityLevel === 'noAuthNoPriv' || config.securityLevel === '1') {
+        securityLevel = snmp.SecurityLevel.noAuthNoPriv;
+      }
+      
       options.security = {
         username: config.username,
-        level: snmp.SecurityLevel.authPriv,
+        level: securityLevel,
       };
       
       if (config.authPassword && config.authProtocol) {
@@ -571,7 +589,6 @@ export async function startSnmpCollector(intervalMs: number = 30000): Promise<vo
     const interval = setInterval(() => collectSnmpDataForTarget(target), target.interval || intervalMs);
     targetIntervals.set(target.id, interval);
   }
-} (interval: ${intervalMs}ms)`);
 
   // Initial collection
   collectSnmpData();

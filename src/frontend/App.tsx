@@ -7,6 +7,15 @@ import { Dashboard } from './components/layout/Dashboard';
 function AuthenticatedApp() {
   const { isAuthenticated, isLoading } = useAuthContext();
 
+  // 临时跳过登录，直接显示 Dashboard
+  return (
+    <div className="min-h-screen bg-noc-bg">
+      <Dashboard />
+    </div>
+  );
+
+  // 以下是原始认证逻辑（暂时禁用）
+  /*
   if (isLoading) {
     return (
       <div className="min-h-screen bg-noc-bg flex items-center justify-center">
@@ -24,6 +33,7 @@ function AuthenticatedApp() {
       <Dashboard />
     </div>
   );
+  */
 }
 
 function AuthPages() {

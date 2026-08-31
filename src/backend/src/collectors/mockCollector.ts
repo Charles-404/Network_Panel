@@ -66,5 +66,15 @@ export async function getDashboardMetrics() {
 }
 
 export async function getDevicesWithTraffic() {
-  return getAll('SELECT * FROM devices ORDER BY last_seen DESC');
+  const rows = await getAll('SELECT * FROM devices ORDER BY last_seen DESC') as any[];
+  return rows.map((r: any) => ({
+    id: r.id,
+    name: r.name,
+    type: r.type,
+    ipAddress: r.ip_address || '',
+    macAddress: r.mac_address || '',
+    interface: r.interface_name || '',
+    isOnline: r.is_online,
+    lastSeen: r.last_seen,
+  }));
 }

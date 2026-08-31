@@ -1,12 +1,10 @@
 import Fastify from 'fastify';
-import cors from '@fastify/cors';
 import { registerRoutes } from './api/routes.js';
-import { registerSettingsRoutes } from './settings/routes.js';
-import { registerAuthRoutes } from './auth/routes.js';
+import cors from '@fastify/cors';
 import { initWebSocket, broadcastToClients } from './websocket/index.js';
 import { getLatestSystemStatus, getLatestTrafficStats, getRecentEvents, getTopology, getDevicesWithTraffic } from './collectors/mockCollector.js';
 import { startFortiGateCollector, isFortiGateConfigured } from './collectors/fortigateCollector.js';
-import { startSnmpCollector, isSnmpConfigured } from './collectors/snmpCollector.js';
+import { startSnmpCliCollector, isSnmpCliConfigured } from './collectors/snmpCli.js';
 import { startSyslogServer, stopSyslogServer } from './syslog/index.js';
 import { alertRulesEngine } from './alerts/rules.js';
 import { alertManager } from './alerts/manager.js';
@@ -61,10 +59,8 @@ async function start(): Promise<void> {
 
   // ============================================================
   // 注册路由
-  // ============================================================
-  await registerAuthRoutes(app);
   await registerRoutes(app);
-  await registerSettingsRoutes(app);
+  // ============================================================
 
   // ============================================================
   // 启动服务器
@@ -79,20 +75,15 @@ async function start(): Promise<void> {
   await alertRulesEngine.loadRules();
   appLogger.info({ ruleCount: alertRulesEngine.getRules.length }, 'Alert rules loaded');
 
-  // ---- Start FortiGate collector if configured ----
-  if (isFortiGateConfigured()) {
-    appLogger.info('FortiGate detected, starting real data collection...');
+  // ---- Start collectors (prefer SNMP if configured, otherwise FortiGate REST API) ----
+  if (await isSnmpCliConfigured()) {
+    appLogger.info('SNMP target detected, starting SNMP collection...');
+    await startSnmpCliCollector(parseInt(process.env.SNMP_INTERVAL || '30000'));
+  } else if (isFortiGateConfigured()) {
+    appLogger.info('FortiGate detected (no SNMP), starting REST API collection...');
     startFortiGateCollector(5000);
   } else {
-    appLogger.warn('FortiGate not configured. Set FORTIGATE_HOST and FORTIGATE_TOKEN in .env');
-  }
-
-  // ---- Start SNMP collector if configured ----
-  if (await isSnmpConfigured()) {
-    appLogger.info('SNMP target detected, starting SNMP collection...');
-    await startSnmpCollector(parseInt(process.env.SNMP_INTERVAL || '30000'));
-  } else {
-    appLogger.info('SNMP not configured (optional). Set SNMP_HOST in .env or configure in Settings.');
+    appLogger.warn('Neither SNMP nor FortiGate REST API configured. Using mock data.');
   }
 
   // ---- Broadcast system data every 5 seconds ----

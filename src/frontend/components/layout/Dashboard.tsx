@@ -8,7 +8,7 @@ import { TrafficChart } from '@/components/charts/TrafficChart';
 import { SystemChart } from '@/components/charts/SystemChart';
 import { EventLog } from '@/components/events/EventLog';
 import { DeviceList } from '@/components/devices/DeviceList';
-import { formatBits, formatNumber } from '@/lib/utils';
+import { formatBits, formatNumber, formatDuration } from '@/lib/utils';
 import type { TopologyNode, TopologyEdge, ConnectedDevice } from '@/types';
 import { AlertPanel } from '@/components/alerts/AlertPanel';
 
@@ -40,6 +40,9 @@ export function Dashboard() {
     activeSessions: 0, cpuUsage: 0, memoryUsage: 0, wanLatency: 0,
   });
   const [fortiGate, setFortiGate] = useState<any>(null);
+  const [fortigateDevices, setFortigateDevices] = useState<any[]>([]);
+  const [vpnTunnel, setVpnTunnel] = useState<any>(null);
+  const [activeDeviceIndex, setActiveDeviceIndex] = useState(0);
   const [events, setEvents] = useState<any[]>([]);
   const [devices, setDevices] = useState<ConnectedDevice[]>([]);
   const [topology, setTopology] = useState<{ nodes: TopologyNode[]; edges: TopologyEdge[] }>({ nodes: [], edges: [] });
@@ -63,14 +66,33 @@ export function Dashboard() {
     }
   }, []);
 
-  // WebSocket connection
-  useEffect(() => {
+    // WebSocket connection with auto-reconnect
+  const wsRef = useRef<WebSocket | null>(null);
+  
+  const connectWebSocket = useCallback(() => {
+    // 关闭旧连接
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    
     const ws = new WebSocket(WS_URL);
-    ws.onopen = () => setIsConnected(true);
+    wsRef.current = ws;
+    
+    ws.onopen = () => {
+      setIsConnected(true);
+      console.log('WebSocket connected');
+    };
+    
     ws.onclose = () => {
       setIsConnected(false);
-      setTimeout(() => window.location.reload(), 5000);
+      // 自动重连
+      setTimeout(connectWebSocket, 3000);
     };
+    
+    ws.onerror = (err) => {
+      console.error('WebSocket error:', err);
+    };
+    
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
@@ -152,13 +174,36 @@ export function Dashboard() {
             });
           });
         }
+
+        if (msg.type === 'fortigate_devices' && Array.isArray(msg.data)) {
+          scheduleUpdate('fortigate_devices', () => {
+            setFortigateDevices(msg.data);
+          });
+        }
+
+        if (msg.type === 'vpn_tunnel' && msg.data) {
+          scheduleUpdate('vpn_tunnel', () => {
+            setVpnTunnel((prev: any) => {
+              if (prev && prev.uptime === msg.data.uptime) return prev;
+              return msg.data;
+            });
+          });
+        }
       } catch (err) { console.error(err); }
     };
+  }, []);
+
+  // WebSocket 连接
+  useEffect(() => {
+    connectWebSocket();
+    
     return () => {
-      ws.close();
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [scheduleUpdate]);
+  }, [connectWebSocket]);
 
   // REST API: fetch once on mount for initial data
   useEffect(() => {
@@ -181,7 +226,16 @@ export function Dashboard() {
     fetch(API_BASE + '/api/devices').then(r => r.json()).then(d => {
       if (d.data?.length) setDevices(d.data);
     }).catch(() => {});
+
+    fetch(API_BASE + '/api/fortigate/devices').then(r => r.json()).then(d => {
+      if (d.success && d.data?.length) setFortigateDevices(d.data);
+    }).catch(() => {});
+
+    fetch(API_BASE + '/api/fortigate/vpn').then(r => r.json()).then(d => {
+      if (d.success && d.data?.length) setVpnTunnel(d.data[0]);
+    }).catch(() => {});
   }, []);
+
 
   return (
     <div className='min-h-screen bg-noc-bg flex flex-col'>
@@ -194,13 +248,67 @@ export function Dashboard() {
             <MemoMetricCard title='在线设备' value={formatNumber(metrics.onlineDevices)} subtitle='LAN / Wi-Fi' icon={Users} iconColor='text-noc-green' />
             <MemoMetricCard title='VPN' value={metrics.vpnConnections + ' / 3'} subtitle='IPsec / SSL-VPN' icon={Shield} iconColor='text-noc-purple' />
             <MemoMetricCard title='会话数' value={formatNumber(metrics.activeSessions)} subtitle='活跃' icon={Activity} iconColor='text-noc-orange' />
-            <MemoMetricCard title='CPU' value={metrics.cpuUsage.toFixed(1) + '%'} icon={Cpu} iconColor='text-noc-purple' />
-            <MemoMetricCard title='内存' value={metrics.memoryUsage.toFixed(1) + '%'} icon={MemoryStick} iconColor='text-noc-orange' />
+            <MemoMetricCard title='CPU' value={Math.round(metrics.cpuUsage) + '%'} icon={Cpu} iconColor='text-noc-purple' />
+            <MemoMetricCard title='内存' value={Math.round(metrics.memoryUsage) + '%'} icon={MemoryStick} iconColor='text-noc-orange' />
             <MemoMetricCard title='延迟' value={metrics.wanLatency + ' ms'} icon={Clock} iconColor='text-noc-blue' />
           </div>
           <div className='grid grid-cols-1 lg:grid-cols-3 gap-4'>
-            <div className='lg:col-span-1'>
-              {fortiGate && <MemoFortiGateCard status={fortiGate} />}
+            <div className='lg:col-span-1 space-y-4'>
+              {/* VPN 隧道状态 */}
+              {vpnTunnel && (
+                <div className='bg-noc-card border border-noc-border p-3 rounded-sm'>
+                  <div className='flex items-center gap-2 mb-2'>
+                    <div className='w-2 h-2 rounded-full bg-noc-green animate-pulse' />
+                    <span className='text-xs font-medium text-noc-text'>IPSec VPN 隧道</span>
+                  </div>
+                  <div className='grid grid-cols-2 gap-2 text-xs'>
+                    <div>
+                      <span className='text-noc-text-muted'>状态: </span>
+                      <span className='text-noc-green'>已连接</span>
+                    </div>
+                    <div>
+                      <span className='text-noc-text-muted'>运行: </span>
+                      <span className='text-noc-text'>{formatDuration(vpnTunnel.uptime)}</span>
+                    </div>
+                    <div>
+                      <span className='text-noc-text-muted'>↓ </span>
+                      <span className='text-noc-text'>{formatBits(vpnTunnel.bytesIn * 8)}</span>
+                    </div>
+                    <div>
+                      <span className='text-noc-text-muted'>↑ </span>
+                      <span className='text-noc-text'>{formatBits(vpnTunnel.bytesOut * 8)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* FortiGate 设备 */}
+              <div>
+                {fortigateDevices.length > 0 && fortigateDevices[activeDeviceIndex] ? (
+                  <MemoFortiGateCard status={fortigateDevices[activeDeviceIndex]} />
+                ) : fortiGate ? (
+                  <MemoFortiGateCard status={fortiGate} />
+                ) : (
+                  <div className='bg-noc-card border border-noc-border p-4 rounded-sm'>
+                    <div className='text-noc-text-muted text-sm'>加载中...</div>
+                  </div>
+                )}
+                
+                {/* 设备切换按钮 */}
+                {fortigateDevices.length > 1 && (
+                  <div className='flex justify-center gap-2 mt-3'>
+                    {fortigateDevices.map((device: any, index: number) => (
+                      <button
+                        key={device.id || index}
+                        onClick={() => setActiveDeviceIndex(index)}
+                        className={`px-3 py-1 text-xs rounded-sm transition-colors \${index === activeDeviceIndex ? 'bg-noc-purple text-white' : 'bg-noc-bg text-noc-text hover:bg-noc-border'}`}
+                      >
+                        {device.location || device.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className='lg:col-span-2'>
               <MemoNetworkTopology nodes={topology.nodes} edges={topology.edges} />
