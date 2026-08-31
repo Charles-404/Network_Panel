@@ -129,7 +129,221 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+    // ============================================================
+  // SNMP endpoints
   // ============================================================
+  app.post('/api/snmp/test', async (request, reply) => {
+    const body = request.body as {
+      host: string;
+      community?: string;
+      port?: number;
+      version?: string;
+      username?: string;
+      authPassword?: string;
+      authProtocol?: string;
+      privPassword?: string;
+      privProtocol?: string;
+    };
+
+    if (!body.host) {
+      return reply.code(400).send({ success: false, error: '主机地址不能为空', timestamp: new Date() });
+    }
+
+    try {
+      const snmp = await import('net-snmp');
+      
+      const options: any = {
+        port: body.port || 161,
+        timeout: 5000,
+        retries: 1,
+      };
+
+      // Handle SNMPv3 options
+      if (body.version === '3' && body.username) {
+        options.version = snmp.default.SnmpVersion.v3;
+        options.security = {
+          username: body.username,
+          level: snmp.default.SecurityLevel.authPriv,
+        };
+        
+        if (body.authPassword && body.authProtocol) {
+          options.security.authProtocol = body.authProtocol;
+          options.security.authPassword = body.authPassword;
+        }
+        
+        if (body.privPassword && body.privProtocol) {
+          options.security.privProtocol = body.privProtocol;
+          options.security.privPassword = body.privPassword;
+        }
+      }
+
+      const session = snmp.default.createSession(body.host, body.community || 'public', options);
+      
+      return new Promise((resolve) => {
+        // Try to get sysDescr (1.3.6.1.2.1.1.1.0)
+        session.get(['1.3.6.1.2.1.1.1.0'], (error: any, varbinds: any[]) => {
+          session.close();
+          
+          if (error) {
+            resolve({
+              success: false,
+              error: `SNMP连接失败: ${error.message || error}`,
+              timestamp: new Date(),
+            });
+          } else if (varbinds && varbinds.length > 0 && !snmp.default.isVarbindError(varbinds[0])) {
+            const sysDescr = varbinds[0].value?.toString() || '';
+            resolve({
+              success: true,
+              data: {
+                host: body.host,
+                sysDescr,
+                message: 'SNMP连接成功',
+              },
+              timestamp: new Date(),
+            });
+          } else {
+            resolve({
+              success: false,
+              error: 'SNMP查询返回错误',
+              timestamp: new Date(),
+            });
+          }
+        });
+      });
+    } catch (err: any) {
+      return reply.code(500).send({
+        success: false,
+        error: `SNMP测试失败: ${err.message}`,
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  app.get('/api/snmp/status', async () => {
+    const { isSnmpConfigured, getSnmpConfig, getSnmpTargets } = await import('../collectors/snmpCollector.js');
+    const configured = await isSnmpConfigured();
+    const targets = await getSnmpTargets();
+    
+    let singleTargetInfo = null;
+    if (configured) {
+      const config = await getSnmpConfig();
+      singleTargetInfo = {
+        host: config.host,
+        port: config.port,
+        community: config.community ? '****' : null,
+        interval: config.timeout,
+      };
+    }
+    
+    return {
+      success: true,
+      data: {
+        configured,
+        mode: targets.length > 0 ? 'multi-target' : 'single-target',
+        targetsCount: targets.length,
+        activeTargets: targets.filter(t => t.enabled).length,
+        singleTarget: singleTargetInfo,
+        targets: targets.map(t => ({
+          id: t.id,
+          name: t.name,
+          host: t.host,
+          port: t.port,
+          version: t.version,
+          enabled: t.enabled,
+          interval: t.interval,
+        })),
+      },
+      timestamp: new Date(),
+    };
+  });
+
+  // SNMP collection statistics
+  app.get('/api/snmp/stats', async (_request, reply) => {
+    try {
+      const { query } = await import('../database/index.js');
+      
+      // Get last collection event
+      const lastCollection = await query(
+        `SELECT created_at, message FROM events 
+         WHERE source = 'snmp' AND level = 'info' 
+         ORDER BY created_at DESC LIMIT 1`
+      );
+      
+      // Get last error event
+      const lastError = await query(
+        `SELECT created_at, message FROM events 
+         WHERE source = 'snmp' AND level = 'error' 
+         ORDER BY created_at DESC LIMIT 1`
+      );
+      
+      // Get collection count in last hour
+      const recentCollections = await query(
+        `SELECT COUNT(*) as count FROM events 
+         WHERE source = 'snmp' AND level = 'info' 
+         AND created_at > NOW() - INTERVAL '1 hour'`
+      );
+      
+      // Get error count in last hour
+      const recentErrors = await query(
+        `SELECT COUNT(*) as count FROM events 
+         WHERE source = 'snmp' AND level = 'error' 
+         AND created_at > NOW() - INTERVAL '1 hour'`
+      );
+      
+      // Get total devices discovered via SNMP
+      const snmpDevices = await query(
+        `SELECT COUNT(*) as count FROM devices 
+         WHERE id LIKE 'snmp-if-%' OR id LIKE '%-snmp-if-%'`
+      );
+      
+      return {
+        success: true,
+        data: {
+          lastCollection: (lastCollection as any[])[0] || null,
+          lastError: (lastError as any[])[0] || null,
+          collectionsLastHour: parseInt((recentCollections as any[])[0]?.count || '0'),
+          errorsLastHour: parseInt((recentErrors as any[])[0]?.count || '0'),
+          totalDevices: parseInt((snmpDevices as any[])[0]?.count || '0'),
+          health: parseInt((recentErrors as any[])[0]?.count || '0') === 0 ? 'healthy' : 'degraded',
+        },
+        timestamp: new Date(),
+      };
+    } catch (err: any) {
+      return reply.code(500).send({
+        success: false,
+        error: `获取SNMP统计失败: ${err.message}`,
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // SNMP device discovery
+  app.get('/api/snmp/devices', async (_request, reply) => {
+    try {
+      const { query } = await import('../database/index.js');
+      
+      const devices = await query(
+        `SELECT id, name, type, ip_address, mac_address, interface_name, is_online, last_seen
+         FROM devices 
+         WHERE id LIKE 'snmp-if-%' OR id LIKE '%-snmp-if-%'
+         ORDER BY last_seen DESC`
+      );
+      
+      return {
+        success: true,
+        data: devices,
+        timestamp: new Date(),
+      };
+    } catch (err: any) {
+      return reply.code(500).send({
+        success: false,
+        error: `获取SNMP设备失败: ${err.message}`,
+        timestamp: new Date(),
+      });
+    }
+  });
+
+// ============================================================
   // Events
   // ============================================================
   app.get('/api/events', async (request) => {

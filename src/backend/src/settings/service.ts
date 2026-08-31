@@ -29,6 +29,27 @@ export interface SystemSettings {
   users: Record<string, unknown>;
 }
 
+export interface SnmpTarget {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  community?: string;
+  version: '1' | '2c' | '3';
+  enabled: boolean;
+  // SNMPv3 fields
+  username?: string;
+  authProtocol?: 'MD5' | 'SHA' | 'SHA256';
+  authPassword?: string;
+  privProtocol?: 'DES' | 'AES' | 'AES256';
+  privPassword?: string;
+  securityLevel?: 'noAuthNoPriv' | 'authNoPriv' | 'authPriv';
+  // Collection settings
+  interval?: number;
+  retries?: number;
+  timeout?: number;
+}
+
 // ============================================================
 // Default settings
 // ============================================================
@@ -63,11 +84,21 @@ const DEFAULT_NOTIFICATION_SETTINGS: Record<string, unknown> = {
 const DEFAULT_SYSTEM_SETTINGS: Record<string, unknown> = {
   snmp: {
     enabled: false,
+    // Legacy single target (for backward compatibility)
     host: '',
     port: 161,
     community: 'public',
     version: '2c',
     interval: 30000,
+    // New: Multiple targets support
+    targets: [],
+    // SNMPv3 default settings
+    username: '',
+    authProtocol: 'MD5',
+    authPassword: '',
+    privProtocol: 'DES',
+    privPassword: '',
+    securityLevel: 'authPriv',
   },
   syslog: {
     enabled: true,

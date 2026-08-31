@@ -88,11 +88,11 @@ async function start(): Promise<void> {
   }
 
   // ---- Start SNMP collector if configured ----
-  if (isSnmpConfigured()) {
+  if (await isSnmpConfigured()) {
     appLogger.info('SNMP target detected, starting SNMP collection...');
-    startSnmpCollector(parseInt(process.env.SNMP_INTERVAL || '30000'));
+    await startSnmpCollector(parseInt(process.env.SNMP_INTERVAL || '30000'));
   } else {
-    appLogger.info('SNMP not configured (optional). Set SNMP_HOST in .env to enable.');
+    appLogger.info('SNMP not configured (optional). Set SNMP_HOST in .env or configure in Settings.');
   }
 
   // ---- Broadcast system data every 5 seconds ----

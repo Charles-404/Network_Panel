@@ -23,6 +23,7 @@ export function SystemSettings({ settings, onChange }: SystemSettingsProps) {
   const [testingSnmp, setTestingSnmp] = useState(false);
   const [testingFortiGate, setTestingFortiGate] = useState(false);
   const [snmpStatus, setSnmpStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [snmpTestResult, setSnmpTestResult] = useState<{ message?: string; sysDescr?: string } | null>(null);
   const [fortiGateStatus, setFortiGateStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   // Helper to update nested settings
@@ -40,12 +41,51 @@ export function SystemSettings({ settings, onChange }: SystemSettingsProps) {
   const handleTestSnmp = async () => {
     setTestingSnmp(true);
     setSnmpStatus('idle');
+    setSnmpTestResult(null);
+    
     try {
-      // Simulate SNMP test
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setSnmpStatus('success');
-    } catch {
+      const host = getNested('snmp', 'host');
+      const community = getNested('snmp', 'community');
+      const port = getNested('snmp', 'port', 161);
+      const version = getNested('snmp', 'version', '2c');
+      const username = getNested('snmp', 'username');
+      const authPassword = getNested('snmp', 'authPassword');
+      const authProtocol = getNested('snmp', 'authProtocol');
+      const privPassword = getNested('snmp', 'privPassword');
+      const privProtocol = getNested('snmp', 'privProtocol');
+
+      if (!host) {
+        throw new Error('请填写主机地址');
+      }
+
+      const response = await fetch(`http://${window.location.hostname}:3001/api/snmp/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host,
+          community,
+          port,
+          version,
+          username,
+          authPassword,
+          authProtocol,
+          privPassword,
+          privProtocol,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setSnmpStatus('success');
+        setSnmpTestResult(data.data);
+      } else {
+        setSnmpStatus('error');
+        setSnmpTestResult({ message: data.error });
+      }
+    } catch (err: any) {
       setSnmpStatus('error');
+      setSnmpTestResult({ message: err.message || '测试失败' });
     } finally {
       setTestingSnmp(false);
     }

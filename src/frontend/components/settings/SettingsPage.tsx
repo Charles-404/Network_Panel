@@ -11,6 +11,7 @@ import {
   Download,
   Upload,
   X,
+  Radio,
 } from 'lucide-react';
 
 // Import tab components
@@ -18,10 +19,11 @@ import { GeneralSettings } from './GeneralSettings';
 import { DisplaySettings } from './DisplaySettings';
 import { NotificationSettings } from './NotificationSettings';
 import { SystemSettings } from './SystemSettings';
+import { SnmpMonitor } from '@/components/snmp/SnmpMonitor';
 
 const API_BASE = 'http://' + window.location.hostname + ':3001';
 
-type TabId = 'general' | 'display' | 'notification' | 'system';
+type TabId = 'general' | 'display' | 'notification' | 'system' | 'snmp';
 
 interface Tab {
   id: TabId;
@@ -35,6 +37,7 @@ const tabs: Tab[] = [
   { id: 'display', label: '显示', icon: Monitor, description: '主题、刷新间隔、图表选项' },
   { id: 'notification', label: '通知', icon: Bell, description: '告警通知、Webhook 配置' },
   { id: 'system', label: '系统', icon: Server, description: 'SNMP、Syslog、FortiGate 配置' },
+  { id: 'snmp', label: 'SNMP 监控', icon: Radio, description: 'SNMP 设备发现、状态监控' },
 ];
 
 interface SettingsPageProps {
@@ -304,6 +307,9 @@ export function SettingsPage({ isOpen, onClose }: SettingsPageProps) {
                     settings={settings.system || {}}
                     onChange={(key, value) => handleSettingChange('system', key, value)}
                   />
+                )}
+                {activeTab === 'snmp' && (
+                  <SnmpMonitor />
                 )}
               </>
             )}

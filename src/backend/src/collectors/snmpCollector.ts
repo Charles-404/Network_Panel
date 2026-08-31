@@ -1,5 +1,6 @@
 import snmp from 'net-snmp';
 import { query } from '../database/index.js';
+import { settingsService } from '../settings/service.js';
 
 // ============================================================================
 // SNMP Configuration
@@ -11,9 +12,53 @@ interface SnmpConfig {
   port: number;
   timeout: number;
   retries: number;
+  version?: string;
+  username?: string;
+  authProtocol?: string;
+  authPassword?: string;
+  privProtocol?: string;
+  privPassword?: string;
 }
 
-function getSnmpConfig(): SnmpConfig {
+interface SnmpTarget {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  community?: string;
+  version: '1' | '2c' | '3';
+  enabled: boolean;
+  username?: string;
+  authProtocol?: string;
+  authPassword?: string;
+  privProtocol?: string;
+  privPassword?: string;
+  securityLevel?: string;
+  interval?: number;
+  retries?: number;
+  timeout?: number;
+}
+
+async function getSnmpConfig(): Promise<SnmpConfig> {
+  try {
+    // Try to read from database settings first
+    const systemSettings = await settingsService.getSystemSettings();
+    const snmpSettings = systemSettings.snmp as Record<string, unknown>;
+    
+    if (snmpSettings?.enabled && snmpSettings?.host) {
+      return {
+        host: snmpSettings.host as string,
+        community: (snmpSettings.community as string) || 'public',
+        port: (snmpSettings.port as number) || 161,
+        timeout: (snmpSettings.interval as number) || 5000,
+        retries: (snmpSettings.retries as number) || 1,
+      };
+    }
+  } catch (error) {
+    console.warn('Failed to read SNMP config from database, using environment variables');
+  }
+  
+  // Fallback to environment variables
   return {
     host: process.env.SNMP_HOST || '192.168.1.1',
     community: process.env.SNMP_COMMUNITY || 'public',
@@ -23,7 +68,19 @@ function getSnmpConfig(): SnmpConfig {
   };
 }
 
-export function isSnmpConfigured(): boolean {
+export async function isSnmpConfigured(): Promise<boolean> {
+  try {
+    const systemSettings = await settingsService.getSystemSettings();
+    const snmpSettings = systemSettings.snmp as Record<string, unknown>;
+    
+    if (snmpSettings?.enabled && snmpSettings?.host) {
+      return true;
+    }
+  } catch (error) {
+    // Ignore error and check env vars
+  }
+  
+  // Fallback to environment variables
   const host = process.env.SNMP_HOST;
   return !!host && host.length > 0;
 }
@@ -78,11 +135,33 @@ class SnmpSession {
 
   constructor(config: SnmpConfig) {
     this.config = config;
-    this.session = snmp.createSession(config.host, config.community, {
+    
+    const options: any = {
       port: config.port,
       timeout: config.timeout / 1000, // net-snmp uses seconds
       retries: config.retries,
-    });
+    };
+
+    // Handle SNMPv3
+    if (config.version === '3' && config.username) {
+      options.version = snmp.SnmpVersion.v3;
+      options.security = {
+        username: config.username,
+        level: snmp.SecurityLevel.authPriv,
+      };
+      
+      if (config.authPassword && config.authProtocol) {
+        options.security.authProtocol = config.authProtocol;
+        options.security.authPassword = config.authPassword;
+      }
+      
+      if (config.privPassword && config.privProtocol) {
+        options.security.privProtocol = config.privProtocol;
+        options.security.privPassword = config.privPassword;
+      }
+    }
+
+    this.session = snmp.createSession(config.host, config.community || 'public', options);
   }
 
   // Get single OID value
@@ -464,9 +543,35 @@ export async function collectSnmpData(): Promise<void> {
 // Start/Stop Functions
 // ============================================================================
 
-export function startSnmpCollector(intervalMs: number = 30000): void {
-  const config = getSnmpConfig();
-  console.log(`Starting SNMP collector for ${config.host} (interval: ${intervalMs}ms)`);
+// Collection intervals for multiple targets
+const targetIntervals: Map<string, NodeJS.Timeout> = new Map();
+
+export async function startSnmpCollector(intervalMs: number = 30000): Promise<void> {
+  const targets = await getSnmpTargets();
+  
+  if (targets.length === 0) {
+    // Fallback to single target mode
+    const config = await getSnmpConfig();
+    console.log(`Starting SNMP collector for ${config.host} (interval: ${intervalMs}ms)`);
+    await collectSnmpData();
+    collectionInterval = setInterval(collectSnmpData, intervalMs);
+    return;
+  }
+  
+  // Start collectors for each target
+  for (const target of targets) {
+    if (!target.enabled) continue;
+    
+    console.log(`Starting SNMP collector for ${target.name} (${target.host}) (interval: ${target.interval || intervalMs}ms)`);
+    
+    // Initial collection for this target
+    await collectSnmpDataForTarget(target);
+    
+    // Periodic collection for this target
+    const interval = setInterval(() => collectSnmpDataForTarget(target), target.interval || intervalMs);
+    targetIntervals.set(target.id, interval);
+  }
+} (interval: ${intervalMs}ms)`);
 
   // Initial collection
   collectSnmpData();
@@ -479,8 +584,15 @@ export function stopSnmpCollector(): void {
   if (collectionInterval) {
     clearInterval(collectionInterval);
     collectionInterval = null;
-    console.log('SNMP collector stopped');
   }
+  
+  // Stop all target-specific intervals
+  for (const [targetId, interval] of targetIntervals) {
+    clearInterval(interval);
+  }
+  targetIntervals.clear();
+  
+  console.log('SNMP collector stopped');
 }
 
 // ============================================================================
@@ -499,4 +611,4 @@ function formatMac(buffer: Buffer | null | undefined): string {
 // Exports for testing
 // ============================================================================
 
-export { SnmpSession, OIDs, getSnmpConfig };
+export { SnmpSession, OIDs, getSnmpConfig, getSnmpTargets, getSnmpTargetById };
