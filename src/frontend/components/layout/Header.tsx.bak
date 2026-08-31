@@ -26,7 +26,6 @@ export function Header({ className }: { className?: string }) {
               <Wifi className='w-4 h-4 text-noc-green' />
               <span className='text-xs text-noc-text-muted'>已连接</span>
             </div>
-          <UserMenu />
             <AlertBadge />
             <button
               onClick={() => setIsSettingsOpen(true)}

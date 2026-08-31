@@ -161,18 +161,6 @@ CREATE TABLE IF NOT EXISTS topology_edges (
 );
 
 -- ============================================================
--- ============================================================
--- Users (authentication)
--- ============================================================
-CREATE TABLE IF NOT EXISTS users (
-  id SERIAL PRIMARY KEY,
-  username VARCHAR(50) UNIQUE NOT NULL,
-  email VARCHAR(100) UNIQUE NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
-  role VARCHAR(20) DEFAULT 'viewer' CHECK (role IN ('admin', 'viewer')),
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
 -- Indexes
 -- ============================================================
 CREATE INDEX IF NOT EXISTS idx_history_metrics_type ON history_metrics(metric_type);

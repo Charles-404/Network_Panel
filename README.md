@@ -317,8 +317,8 @@ docker compose down
 - [x] Phase 1 — 项目初始化、Dashboard UI、Dark NOC 风格、Mock Data
 - [x] Phase 2 — Backend、PostgreSQL、WebSocket、数据模型
 - [x] Phase 3 — FortiGate REST API Adapter、系统状态、接口、VPN
-- [ ] Phase 4 — SNMP、Syslog、告警系统
-- [ ] Phase 5 — 认证系统、Settings、生产优化
+- [x] Phase 4 — SNMP、Syslog、告警系统
+- [x] Phase 5 — 认证系统、Settings、生产优化
 
 ## 许可证
 

@@ -1,7 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { registerRoutes } from './api/routes.js';
-import { registerSettingsRoutes } from './settings/routes.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { initWebSocket, broadcastToClients } from './websocket/index.js';
 import { getLatestSystemStatus, getLatestTrafficStats, getRecentEvents, getTopology, getDevicesWithTraffic } from './collectors/mockCollector.js';
@@ -62,9 +61,7 @@ async function start(): Promise<void> {
   // ============================================================
   // 注册路由
   // ============================================================
-  await registerAuthRoutes(app);
   await registerRoutes(app);
-  await registerSettingsRoutes(app);
 
   // ============================================================
   // 启动服务器

@@ -10,6 +10,7 @@ import { EventLog } from '@/components/events/EventLog';
 import { DeviceList } from '@/components/devices/DeviceList';
 import { formatBits, formatNumber } from '@/lib/utils';
 import type { TopologyNode, TopologyEdge, ConnectedDevice } from '@/types';
+import { AlertPanel } from '@/components/alerts/AlertPanel';
 
 const API_BASE = 'http://' + window.location.hostname + ':3001';
 const WS_URL = 'ws://' + window.location.hostname + ':3002';
@@ -30,6 +31,7 @@ const MemoNetworkTopology = memo(NetworkTopology);
 const MemoTrafficChart = memo(TrafficChart);
 const MemoSystemChart = memo(SystemChart);
 const MemoEventLog = memo(EventLog);
+const MemoAlertPanel = memo(AlertPanel);
 const MemoDeviceList = memo(DeviceList);
 
 export function Dashboard() {
@@ -211,6 +213,9 @@ export function Dashboard() {
           <div className='grid grid-cols-1 lg:grid-cols-3 gap-4'>
             <div className='lg:col-span-1'><MemoSystemChart /></div>
             <div className='lg:col-span-2'><MemoEventLog events={events} /></div>
+          </div>
+          <div className='grid grid-cols-1 gap-4'>
+            <MemoAlertPanel />
           </div>
         </div>
       </main>
